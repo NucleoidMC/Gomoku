@@ -2,9 +2,11 @@ package jerozgen.gomoku.game;
 
 import jerozgen.gomoku.game.board.Board;
 import jerozgen.gomoku.game.phase.GomokuWaitingPhase;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import xyz.nucleoid.fantasy.RuntimeWorldConfig;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.clock.WorldClocks;
+import xyz.nucleoid.fantasy.Fantasy;
+import xyz.nucleoid.fantasy.RuntimeLevelConfig;
 import xyz.nucleoid.plasmid.api.game.GameActivity;
 import xyz.nucleoid.plasmid.api.game.GameOpenContext;
 import xyz.nucleoid.plasmid.api.game.GameOpenProcedure;
@@ -12,20 +14,22 @@ import xyz.nucleoid.plasmid.api.game.GameSpace;
 import xyz.nucleoid.plasmid.api.game.event.GameActivityEvents;
 import xyz.nucleoid.plasmid.api.game.rule.GameRuleType;
 import xyz.nucleoid.plasmid.api.game.stats.GameStatisticBundle;
-import xyz.nucleoid.plasmid.api.game.world.generator.TemplateChunkGenerator;
+import xyz.nucleoid.plasmid.api.game.level.generator.TemplateChunkGenerator;
 
 import java.util.Collections;
 import java.util.function.Consumer;
 
-public record GomokuGame(GomokuConfig config, Board board, GameSpace gameSpace, ServerWorld world,
+public record GomokuGame(GomokuConfig config, Board board, GameSpace gameSpace, ServerLevel world,
                          GameStatisticBundle statistics) {
     public static GameOpenProcedure open(GameOpenContext<GomokuConfig> context) {
         var config = context.config();
         var board = new Board(config.board());
         var template = board.template();
         var generator = new TemplateChunkGenerator(context.server(), template);
-        var worldConfig = new RuntimeWorldConfig().setGenerator(generator).setTimeOfDay(6000);
-        return context.openWithWorld(worldConfig, (activity, world) -> {
+        var worldConfig = new RuntimeLevelConfig().setGenerator(generator)
+                .setDimensionType(Fantasy.DEFAULT_OVERWORLD_DIM_TYPE)
+                .setClockTime(WorldClocks.OVERWORLD, 6000);
+        return context.openWithLevel(worldConfig, (activity, world) -> {
             var gameSpace = activity.getGameSpace();
             var namespace = config.statisticBundleNamespace();
             var statistics = namespace.map(value -> gameSpace.getStatistics().bundle(value)).orElse(null);
@@ -52,9 +56,9 @@ public record GomokuGame(GomokuConfig config, Board board, GameSpace gameSpace, 
             if (player.getY() < 0) spawn(player);
     }
 
-    public void spawn(ServerPlayerEntity player) {
+    public void spawn(ServerPlayer player) {
         var spawnPos = board.spawnPos();
-        player.teleport(world, spawnPos.x, spawnPos.y, spawnPos.z, Collections.emptySet(), player.getYaw(), player.getPitch(), true);
+        player.teleportTo(world, spawnPos.x, spawnPos.y, spawnPos.z, Collections.emptySet(), player.getYRot(), player.getXRot(), true);
     }
 
     public void stat(Consumer<GameStatisticBundle> consumer) {

@@ -2,7 +2,7 @@ package jerozgen.gomoku.game.phase;
 
 import jerozgen.gomoku.game.GomokuGame;
 import jerozgen.gomoku.game.GomokuTexts;
-import net.minecraft.world.GameMode;
+import net.minecraft.world.level.GameType;
 import xyz.nucleoid.plasmid.api.game.GameActivity;
 import xyz.nucleoid.plasmid.api.game.GameResult;
 import xyz.nucleoid.plasmid.api.game.common.GameWaitingLobby;
@@ -42,8 +42,8 @@ public class GomokuWaitingPhase extends GomokuPhase {
     private JoinAcceptorResult acceptPlayer(JoinAcceptor offer) {
         return offer.teleport(game.world(), game.board().spawnPos())
                 .thenRunForEach(player -> {
-                    player.sendMessage(GomokuTexts.description(game), false);
-                    player.changeGameMode(GameMode.ADVENTURE);
+                    player.sendSystemMessage(GomokuTexts.description(game), false);
+                    player.setGameMode(GameType.ADVENTURE);
                 });
     }
 

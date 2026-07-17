@@ -31,11 +31,11 @@ public class GomokuEndingPhase extends GomokuPhase {
     }
 
     private void start() {
-        endTime = Util.getMeasuringTimeMs() + ENDING_DURATION;
+        endTime = Util.getMillis() + ENDING_DURATION;
     }
 
     private void tick() {
-        if (Util.getMeasuringTimeMs() >= endTime) {
+        if (Util.getMillis() >= endTime) {
             game.gameSpace().close(GameCloseReason.FINISHED);
         }
     }

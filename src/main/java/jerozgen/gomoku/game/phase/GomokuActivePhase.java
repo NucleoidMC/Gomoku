@@ -3,19 +3,20 @@ package jerozgen.gomoku.game.phase;
 import jerozgen.gomoku.game.GomokuGame;
 import jerozgen.gomoku.game.GomokuStatisticKeys;
 import jerozgen.gomoku.game.GomokuTexts;
-import net.minecraft.block.Block;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityType;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
 import net.minecraft.util.Util;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.world.GameMode;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
 import xyz.nucleoid.plasmid.api.game.GameActivity;
 import xyz.nucleoid.plasmid.api.game.event.GameActivityEvents;
 import xyz.nucleoid.plasmid.api.game.event.GamePlayerEvents;
@@ -23,6 +24,7 @@ import xyz.nucleoid.plasmid.api.game.player.JoinAcceptor;
 import xyz.nucleoid.plasmid.api.game.player.JoinAcceptorResult;
 import xyz.nucleoid.plasmid.api.game.rule.GameRuleType;
 import xyz.nucleoid.plasmid.api.game.stats.StatisticKeys;
+import xyz.nucleoid.plasmid.api.util.PlayerUtil;
 import xyz.nucleoid.stimuli.event.EventResult;
 import xyz.nucleoid.stimuli.event.block.BlockUseEvent;
 import xyz.nucleoid.stimuli.event.entity.EntityUseEvent;
@@ -34,9 +36,9 @@ import java.util.stream.Collectors;
 public class GomokuActivePhase extends GomokuPhase {
     private static final long REQUEST_DURATION = 30 * 1000;
 
-    private final Map<ServerPlayerEntity, Block> playerToBlock = new HashMap<>();
-    private final LinkedList<ServerPlayerEntity> queue = new LinkedList<>();
-    private final Map<ServerPlayerEntity, Map<ServerPlayerEntity, Long>> swapRequests = new HashMap<>();
+    private final Map<ServerPlayer, Block> playerToBlock = new HashMap<>();
+    private final LinkedList<ServerPlayer> queue = new LinkedList<>();
+    private final Map<ServerPlayer, Map<ServerPlayer, Long>> swapRequests = new HashMap<>();
 
     private int currentMovePlaces;
     private long moveStartTime;
@@ -74,26 +76,26 @@ public class GomokuActivePhase extends GomokuPhase {
         playerToBlock.putAll(players.stream().collect(Collectors.toMap(Function.identity(), __ -> blocks.next())));
         queue.addAll(players);
         currentMovePlaces = game.config().firstMovePlaces();
-        startTime = Util.getMeasuringTimeMs();
+        startTime = Util.getMillis();
         startTurn(currentPlayer());
     }
 
     private void tick() {
         for (var player : queue) {
-            var hit = player.raycast(8, 0, false);
-            player.sendMessage(game.board().raycastText(hit), true);
+            var hit = player.pick(8, 0, false);
+            player.sendSystemMessage(game.board().raycastText(hit), true);
         }
         updateTimer(currentPlayer());
     }
 
     private JoinAcceptorResult acceptPlayer(JoinAcceptor offer) {
         return offer.teleport(game.world(), game.board().spawnPos())
-                .thenRunForEach(player -> player.changeGameMode(GameMode.SPECTATOR));
+                .thenRunForEach(player -> player.setGameMode(GameType.SPECTATOR));
     }
 
-    private void removePlayer(ServerPlayerEntity player) {
+    private void removePlayer(ServerPlayer player) {
         if (player.equals(currentPlayer())) nextTurn();
-        player.changeGameMode(GameMode.SPECTATOR);
+        player.setGameMode(GameType.SPECTATOR);
         queue.remove(player);
         playerToBlock.remove(player);
         swapRequests.remove(player);
@@ -103,42 +105,42 @@ public class GomokuActivePhase extends GomokuPhase {
         if (queue.size() == 1) win(currentPlayer());
     }
 
-    private ActionResult onBlockUse(ServerPlayerEntity player, Hand hand, BlockHitResult hit) {
-        if (!player.equals(currentPlayer())) return ActionResult.PASS;
-        if (hand != Hand.OFF_HAND) return ActionResult.PASS;
+    private InteractionResult onBlockUse(ServerPlayer player, InteractionHand hand, BlockHitResult hit) {
+        if (!player.equals(currentPlayer())) return InteractionResult.PASS;
+        if (hand != InteractionHand.OFF_HAND) return InteractionResult.PASS;
         var pos = hit.getBlockPos();
-        if (pos.getY() != 0 || game.board().isOut(pos.getX(), pos.getZ())) return ActionResult.PASS;
+        if (pos.getY() != 0 || game.board().isOut(pos.getX(), pos.getZ())) return InteractionResult.PASS;
 
         switch (game.board().block(pos.getX(), pos.getZ(), playerToBlock.get(player), game.world())) {
             case WIN -> win(player);
             case DRAW -> draw();
             case SUCCESS -> {
                 game.world().playSound(null, pos.getX() + .5, pos.getY() + .5, pos.getZ() + .5,
-                        playerToBlock.get(player).getDefaultState().getSoundGroup().getPlaceSound(),
-                        SoundCategory.BLOCKS, 1, 1);
+                        playerToBlock.get(player).defaultBlockState().getSoundType().getPlaceSound(),
+                        SoundSource.BLOCKS, 1, 1);
                 game.stat(statistics -> statistics.forPlayer(player).increment(GomokuStatisticKeys.BLOCKS_PLACED, 1));
                 currentMovePlaces -= 1;
                 if (currentMovePlaces <= 0) nextTurn();
             }
             case FAIL -> {
-                return ActionResult.PASS;
+                return InteractionResult.PASS;
             }
         }
-        return ActionResult.SUCCESS;
+        return InteractionResult.SUCCESS;
     }
 
-    private EventResult onEntityUse(ServerPlayerEntity player, Entity entity, Hand hand, EntityHitResult hit) {
-        if (hand != Hand.MAIN_HAND) return EventResult.PASS;
-        if (!player.isSneaking()) return EventResult.PASS;
+    private EventResult onEntityUse(ServerPlayer player, Entity entity, InteractionHand hand, EntityHitResult hit) {
+        if (hand != InteractionHand.MAIN_HAND) return EventResult.PASS;
+        if (!player.isShiftKeyDown()) return EventResult.PASS;
         if (hit == null) return EventResult.PASS;
-        if (hit.getEntity().getType() != EntityType.PLAYER) return EventResult.PASS;
+        if (hit.getEntity().getType() != EntityTypes.PLAYER) return EventResult.PASS;
         if (!queue.contains(player)) return EventResult.PASS;
-        var target = (ServerPlayerEntity) hit.getEntity();
+        var target = (ServerPlayer) hit.getEntity();
         if (!queue.contains(target)) return EventResult.PASS;
 
         // accept request
         var targetRequests = swapRequests.get(target);
-        if (targetRequests != null && targetRequests.getOrDefault(player, Long.MAX_VALUE) < Util.getMeasuringTimeMs() + REQUEST_DURATION) {
+        if (targetRequests != null && targetRequests.getOrDefault(player, Long.MAX_VALUE) < Util.getMillis() + REQUEST_DURATION) {
             targetRequests.remove(player);
             var playerIndex = queue.indexOf(player);
             var targetIndex = queue.indexOf(target);
@@ -156,20 +158,20 @@ public class GomokuActivePhase extends GomokuPhase {
 
         // send request
         var requests = swapRequests.computeIfAbsent(player, __ -> new HashMap<>());
-        var previousTime = requests.put(target, Util.getMeasuringTimeMs());
-        if (previousTime == null || Util.getMeasuringTimeMs() - previousTime > REQUEST_DURATION) {
-            player.sendMessage(GomokuTexts.swapRequest$toExecutor(target), false);
-            target.sendMessage(GomokuTexts.swapRequest$toTarget(player), false);
+        var previousTime = requests.put(target, Util.getMillis());
+        if (previousTime == null || Util.getMillis() - previousTime > REQUEST_DURATION) {
+            player.sendSystemMessage(GomokuTexts.swapRequest$toExecutor(target), false);
+            target.sendSystemMessage(GomokuTexts.swapRequest$toTarget(player), false);
             return EventResult.ALLOW;
         }
 
         return EventResult.PASS;
     }
 
-    private void win(ServerPlayerEntity winner) {
+    private void win(ServerPlayer winner) {
         var players = game.gameSpace().getPlayers();
         players.sendMessage(GomokuTexts.win(winner));
-        players.playSound(SoundEvents.ENTITY_PLAYER_LEVELUP);
+        players.playSound(SoundEvents.PLAYER_LEVELUP);
         game.stat(statistics -> {
             for (var player : queue) {
                 if (player.equals(winner)) continue;
@@ -183,7 +185,7 @@ public class GomokuActivePhase extends GomokuPhase {
     private void draw() {
         var players = game.gameSpace().getPlayers();
         players.sendMessage(GomokuTexts.draw());
-        players.playSound(SoundEvents.ENTITY_PLAYER_LEVELUP);
+        players.playSound(SoundEvents.PLAYER_LEVELUP);
         game.stat(statistics -> {
             for (var player : queue) {
                 statistics.forPlayer(player).increment(GomokuStatisticKeys.GAMES_WITH_A_DRAW, 1);
@@ -194,7 +196,7 @@ public class GomokuActivePhase extends GomokuPhase {
 
     private void end() {
         if (currentPlayer() != null) endTurn(currentPlayer());
-        var timeElapsed = (float) ((Util.getMeasuringTimeMs() - startTime) / 100) / 10;
+        var timeElapsed = (float) ((Util.getMillis() - startTime) / 100) / 10;
         game.stat(statistics -> {
             for (var player : queue) {
                 statistics.forPlayer(player).increment(StatisticKeys.GAMES_PLAYED, 1);
@@ -205,7 +207,7 @@ public class GomokuActivePhase extends GomokuPhase {
         game.gameSpace().setActivity(endingPhase::setup);
     }
 
-    private ServerPlayerEntity currentPlayer() {
+    private ServerPlayer currentPlayer() {
         return queue.peek();
     }
 
@@ -216,30 +218,30 @@ public class GomokuActivePhase extends GomokuPhase {
         startTurn(currentPlayer());
     }
 
-    private void endTurn(ServerPlayerEntity player) {
-        player.setStackInHand(Hand.OFF_HAND, ItemStack.EMPTY);
-        var timeSpent = (float) ((Util.getMeasuringTimeMs() - moveStartTime) / 100) / 10;
+    private void endTurn(ServerPlayer player) {
+        player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
+        var timeSpent = (float) ((Util.getMillis() - moveStartTime) / 100) / 10;
         game.stat(statistics -> statistics.forPlayer(player).increment(GomokuStatisticKeys.TIME_SPENT, timeSpent));
         clearTimer(player);
     }
 
-    private void startTurn(ServerPlayerEntity player) {
-        moveStartTime = Util.getMeasuringTimeMs();
+    private void startTurn(ServerPlayer player) {
+        moveStartTime = Util.getMillis();
         moveSeconds = game.config().moveDuration();
-        player.playSoundToPlayer(SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.PLAYERS, 1, 1);
-        player.playSoundToPlayer(SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value(), SoundCategory.PLAYERS, 1, 1);
-        player.setStackInHand(Hand.OFF_HAND, playerToBlock.get(player).asItem().getDefaultStack());
+        PlayerUtil.playSoundToPlayer(player, SoundEvents.NOTE_BLOCK_BELL.value(), SoundSource.PLAYERS, 1, 1);
+        PlayerUtil.playSoundToPlayer(player, SoundEvents.NOTE_BLOCK_CHIME.value(), SoundSource.PLAYERS, 1, 1);
+        player.setItemInHand(InteractionHand.OFF_HAND, playerToBlock.get(player).asItem().getDefaultInstance());
         updateTimer(player);
     }
 
-    private void updateTimer(ServerPlayerEntity player) {
-        var time = Util.getMeasuringTimeMs();
+    private void updateTimer(ServerPlayer player) {
+        var time = Util.getMillis();
         var moveDuration = game.config().moveDuration() * 1000;
         var progress = 1f - (float) (time - moveStartTime) / moveDuration;
         var seconds = (int) Math.max(moveDuration - (time - moveStartTime), 0) / 1000;
 
         player.experienceProgress = progress;
-        player.setExperienceLevel(seconds);
+        player.setExperienceLevels(seconds);
 
         if (moveSeconds != seconds) {
             if (moveSeconds == -1) {
@@ -248,15 +250,15 @@ public class GomokuActivePhase extends GomokuPhase {
             } else {
                 moveSeconds = seconds;
                 if (seconds <= 10) {
-                    player.playSoundToPlayer(SoundEvents.UI_BUTTON_CLICK.value(), SoundCategory.PLAYERS, .6f, 1);
+                    PlayerUtil.playSoundToPlayer(player, SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.PLAYERS, .6f, 1);
                     if (seconds == 0) moveSeconds = -1;
                 }
             }
         }
     }
 
-    private void clearTimer(ServerPlayerEntity player) {
+    private void clearTimer(ServerPlayer player) {
         player.experienceProgress = 0;
-        player.setExperienceLevel(0);
+        player.setExperienceLevels(0);
     }
 }

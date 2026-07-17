@@ -1,20 +1,20 @@
 package jerozgen.gomoku.game.board;
 
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.PillarBlock;
-import net.minecraft.text.Text;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.WorldAccess;
 import org.jetbrains.annotations.Nullable;
 import xyz.nucleoid.map_templates.MapTemplate;
 
 import java.util.List;
 import java.util.function.IntUnaryOperator;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 
 public class Board {
@@ -24,7 +24,7 @@ public class Board {
     private final BoardConfig config;
     private final Block[][] board;
     private final int winSize;
-    private final Vec3d spawnPos;
+    private final Vec3 spawnPos;
 
     private int emptySpace;
 
@@ -38,7 +38,7 @@ public class Board {
         }
         this.emptySpace = config.width() * config.width();
         this.winSize = config.winConfig().size();
-        this.spawnPos = new Vec3d(config.width() / 2.0, 1, config.height() / 2.0);
+        this.spawnPos = new Vec3(config.width() / 2.0, 1, config.height() / 2.0);
     }
 
     public boolean isOut(int x, int z) {
@@ -51,13 +51,13 @@ public class Board {
         return board[z][x];
     }
 
-    public BlockChangeResult block(int x, int z, Block block, WorldAccess world) {
+    public BlockChangeResult block(int x, int z, Block block, LevelAccessor world) {
         if (isOut(x, z)) return BlockChangeResult.FAIL;
         if (!DEFAULT_BLOCK.equals(block(x, z))) return BlockChangeResult.FAIL;
 
         board[z][x] = block;
         emptySpace -= 1;
-        world.setBlockState(new BlockPos(x, 0, z), block.getDefaultState(), Block.NOTIFY_LISTENERS);
+        world.setBlock(new BlockPos(x, 0, z), block.defaultBlockState(), Block.UPDATE_CLIENTS);
 
         if (emptySpace <= 0) return BlockChangeResult.DRAW;
 
@@ -79,19 +79,19 @@ public class Board {
         return !config.winConfig().exact() && max >= winSize || max == winSize;
     }
 
-    public Vec3d spawnPos() {
+    public Vec3 spawnPos() {
         return spawnPos;
     }
 
-    public Text raycastText(HitResult hit) {
-        if (hit.getType() != HitResult.Type.BLOCK) return Text.empty();
+    public Component raycastText(HitResult hit) {
+        if (hit.getType() != HitResult.Type.BLOCK) return Component.empty();
 
         var pos = ((BlockHitResult) hit).getBlockPos();
-        if (pos.getY() != 0) return Text.empty();
+        if (pos.getY() != 0) return Component.empty();
 
         var block = block(pos.getX(), pos.getZ());
-        if (block == null) return Text.empty();
-        if (block.equals(DEFAULT_BLOCK)) return Text.empty();
+        if (block == null) return Component.empty();
+        if (block.equals(DEFAULT_BLOCK)) return Component.empty();
 
         return block.getName();
     }
@@ -101,20 +101,20 @@ public class Board {
         var width = config.width();
         var height = config.height();
 
-        for (BlockPos pos : BlockPos.iterate(0, 0, 0, width - 1, 0, height - 1)) {
-            template.setBlockState(pos, DEFAULT_BLOCK.getDefaultState());
+        for (BlockPos pos : BlockPos.betweenClosed(0, 0, 0, width - 1, 0, height - 1)) {
+            template.setBlockState(pos, DEFAULT_BLOCK.defaultBlockState());
         }
 
-        var edge = EDGE_BLOCK.getDefaultState();
+        var edge = EDGE_BLOCK.defaultBlockState();
         for (var iterable : List.of(
-                BlockPos.iterate(-1, 0, -1, width - 1, 0, -1),
-                BlockPos.iterate(0, 0, height, width, 0, height))) {
-            iterable.forEach(pos -> template.setBlockState(pos, edge.with(PillarBlock.AXIS, Direction.Axis.X)));
+                BlockPos.betweenClosed(-1, 0, -1, width - 1, 0, -1),
+                BlockPos.betweenClosed(0, 0, height, width, 0, height))) {
+            iterable.forEach(pos -> template.setBlockState(pos, edge.setValue(RotatedPillarBlock.AXIS, Direction.Axis.X)));
         }
         for (var iterable : List.of(
-                BlockPos.iterate(-1, 0, 0, -1, 0, height),
-                BlockPos.iterate(width, 0, -1, width, 0, height - 1))) {
-            iterable.forEach(pos -> template.setBlockState(pos, edge.with(PillarBlock.AXIS, Direction.Axis.Z)));
+                BlockPos.betweenClosed(-1, 0, 0, -1, 0, height),
+                BlockPos.betweenClosed(width, 0, -1, width, 0, height - 1))) {
+            iterable.forEach(pos -> template.setBlockState(pos, edge.setValue(RotatedPillarBlock.AXIS, Direction.Axis.Z)));
         }
 
         return template;
